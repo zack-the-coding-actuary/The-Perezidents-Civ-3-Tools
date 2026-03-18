@@ -11,5 +11,10 @@ namespace ThePerezidentsCiv3DesktopTools
         {
             ExportUnitsToCsvDialog.Show();
         }
+
+        private void btnRevealMap_Click(object sender, EventArgs e)
+        {
+            RevealMapDialog.Show();
+        }
     }
 }

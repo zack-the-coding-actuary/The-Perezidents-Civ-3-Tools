@@ -20,7 +20,9 @@ namespace ThePerezidentsCiv3DesktopTools
             panelBiq = new GroupBox();
             btnExportUnitsToCsv = new Button();
             panelSav = new GroupBox();
+            btnRevealMap = new Button();
             panelBiq.SuspendLayout();
+            panelSav.SuspendLayout();
             SuspendLayout();
             // 
             // panelBiq
@@ -41,9 +43,19 @@ namespace ThePerezidentsCiv3DesktopTools
             btnExportUnitsToCsv.TabIndex = 0;
             btnExportUnitsToCsv.Text = "Export units to CSV";
             btnExportUnitsToCsv.Click += btnExportUnitsToCsv_Click;
-            // 
+            //
+            // btnRevealMap
+            //
+            btnRevealMap.Location = new Point(10, 25);
+            btnRevealMap.Name = "btnRevealMap";
+            btnRevealMap.Size = new Size(180, 30);
+            btnRevealMap.TabIndex = 0;
+            btnRevealMap.Text = "Reveal Map for Player 1";
+            btnRevealMap.Click += btnRevealMap_Click;
+            //
             // panelSav
-            // 
+            //
+            panelSav.Controls.Add(btnRevealMap);
             panelSav.Location = new Point(224, 12);
             panelSav.Name = "panelSav";
             panelSav.Size = new Size(200, 300);
@@ -61,6 +73,7 @@ namespace ThePerezidentsCiv3DesktopTools
             Name = "Main";
             Text = "The Perezident's Civ 3 Desktop Tools";
             panelBiq.ResumeLayout(false);
+            panelSav.ResumeLayout(false);
             ResumeLayout(false);
         }
 
@@ -69,5 +82,6 @@ namespace ThePerezidentsCiv3DesktopTools
         private GroupBox panelBiq;
         private GroupBox panelSav;
         private Button btnExportUnitsToCsv;
+        private Button btnRevealMap;
     }
 }

@@ -58,6 +58,7 @@ namespace ThePerezidentsCiv3DesktopTools
                 {
                     MessageBox.Show($"Error loading file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     ScenarioPath = null;
+                    UnitLines = null;
                 }
                 finally
                 {
@@ -92,6 +93,75 @@ namespace ThePerezidentsCiv3DesktopTools
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Error exporting to CSV: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+    }
+
+    public class RevealMapDialog : ModalDialog
+    {
+        private static string? SavePath = null;
+        private static byte[]? RevealedMapBytes = null;
+        public RevealMapDialog() : base("No file selected", "Reveal Map for Player 1", "Load SAV file", "Export Revealed SAV File")
+        {
+        }
+        public static new void Show()
+        {
+            using var dialog = new RevealMapDialog();
+            dialog.ShowDialog();
+        }
+        protected override void btnConfirm_Click(object sender, EventArgs e)
+        {
+            string Civ3Path = Civ3Location.GetCiv3Path();
+            using OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "Civ3 Save Files (*.sav)|*.sav";
+            ofd.InitialDirectory = (Civ3Path != "/civ3/path/not/found") ? Civ3Path : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    RevealedMapBytes = MapRevealer.RevealedMap(ofd.FileName);
+                    SavePath = ofd.FileName;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error loading file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SavePath = null;
+                    RevealedMapBytes = null;
+                }
+                finally
+                {
+                    MessageBox.Show($"Save file processed successfully. Ready to export SAV with revealed map for Player 1.", "Success!", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            if (SavePath == null)
+                lblMessage.Text = "No file selected";
+            else
+                lblMessage.Text = Path.GetFileName(SavePath);
+        }
+
+        protected override void btnCancel_Click(object sender, EventArgs e)
+        {
+            if (SavePath == null || RevealedMapBytes == null)
+            {
+                MessageBox.Show("No valid save file loaded. Please load a save file before exporting.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            string Civ3Path = Civ3Location.GetCiv3Path();
+            using SaveFileDialog saveFileDialog = new SaveFileDialog();
+            saveFileDialog.Filter = "SAV files (*.sav)|*.sav";
+            saveFileDialog.InitialDirectory = (Civ3Path != "/civ3/path/not/found") ? Civ3Path : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            saveFileDialog.FileName = Path.GetFileNameWithoutExtension(SavePath) + "_REVEALED.sav";
+            if (saveFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    File.WriteAllBytes(saveFileDialog.FileName, RevealedMapBytes);
+                    MessageBox.Show($"SAV exported successfully to {saveFileDialog.FileName}", "Success!", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error exporting SAV file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
