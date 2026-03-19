@@ -16,5 +16,10 @@ namespace ThePerezidentsCiv3DesktopTools
         {
             RevealMapDialog.Show();
         }
+
+        private void btnToggleHumanAI_Click(object sender, EventArgs e)
+        {
+            ToggleHumanAIDialog.Show();
+        }
     }
 }

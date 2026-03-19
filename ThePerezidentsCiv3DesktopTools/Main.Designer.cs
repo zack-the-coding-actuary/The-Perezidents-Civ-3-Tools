@@ -21,6 +21,7 @@ namespace ThePerezidentsCiv3DesktopTools
             btnExportUnitsToCsv = new Button();
             panelSav = new GroupBox();
             btnRevealMap = new Button();
+            btnToggleHumanAI = new Button();
             panelBiq.SuspendLayout();
             panelSav.SuspendLayout();
             SuspendLayout();
@@ -53,9 +54,19 @@ namespace ThePerezidentsCiv3DesktopTools
             btnRevealMap.Text = "Reveal Map for Player 1";
             btnRevealMap.Click += btnRevealMap_Click;
             //
+            // btnToggleHumanAI
+            //
+            btnToggleHumanAI.Location = new Point(10, 65);
+            btnToggleHumanAI.Name = "btnToggleHumanAI";
+            btnToggleHumanAI.Size = new Size(180, 30);
+            btnToggleHumanAI.TabIndex = 1;
+            btnToggleHumanAI.Text = "Toggle Human/AI Players";
+            btnToggleHumanAI.Click += btnToggleHumanAI_Click;
+            //
             // panelSav
             //
             panelSav.Controls.Add(btnRevealMap);
+            panelSav.Controls.Add(btnToggleHumanAI);
             panelSav.Location = new Point(224, 12);
             panelSav.Name = "panelSav";
             panelSav.Size = new Size(200, 300);
@@ -83,5 +94,6 @@ namespace ThePerezidentsCiv3DesktopTools
         private GroupBox panelSav;
         private Button btnExportUnitsToCsv;
         private Button btnRevealMap;
+        private Button btnToggleHumanAI;
     }
 }
