@@ -5,13 +5,6 @@ using System.Security.Cryptography;
 
 namespace Civ3Tools
 {
-    // TODO: Rework this class around the dummy player model. Key changes needed:
-    //   - humanPlayers should represent only the real players (slots 1..N-1); the dummy occupies slot N.
-    //   - GetConfiguredTurn should not be callable for the dummy slot by real players.
-    //   - PassTurn / ReceiveNewTurn flow should reflect that the round ends when the admin submits the dummy turn,
-    //     not when all real players have gone (the dummy submission is what triggers Civ 3's inter-turn calcs).
-    //   - Validation in ReceiveNewTurn needs to account for out-of-order NextPlayerID values produced by async play.
-    //   - GetConfiguredTurn returns a reference to DecompressedSave — should return a copy to avoid caller mutation.
     public class PitBossOrganizer : IDisposable
     {
         public string Fingerprint { get; private set; }
@@ -61,11 +54,9 @@ namespace Civ3Tools
                 // Otherwise, set NextPlayerID to the correct player
                 else
                 {
-                    // Move turn to next player and make sure we didn't flip turns in case last player just went
                     ChangeNextPlayerID(playerIdx);
-                    ChangeCurrentTurn(CurrentTurn);
                     locked = true;
-                    return DecompressedSave;
+                    return DecompressedSave.ToArray(); // Return a clone
                 }
             }
         }
@@ -81,16 +72,9 @@ namespace Civ3Tools
 
             lock (_lock)
             {
-                // Ensure turn order makes sense
-                // Either the turn is the same and the next player is selected, or its the next turn and the first player is selected
+                // Ensure turn order makes sense: same turn number, NextPlayerID incremented by 1
                 var oldData = TurnOrchestrator.GetGameDataFromSav(DecompressedSave);
-                // TODO: This validation assumes sequential NextPlayerID progression, but async play means the server
-                //   writes an arbitrary NextPlayerID before handing out the save. The second condition (TurnNumber+1,
-                //   NextPlayerID==1) only fires for the dummy player's submission and is still correct, but the first
-                //   condition (NextPlayerID+1) will not hold for out-of-order turns. Redesign this validation.
-                if (newData?.TurnNumber != null &&
-                   ((newData?.TurnNumber == oldData?.TurnNumber && newData?.NextPlayerID == oldData?.NextPlayerID + 1) ||
-                   (newData?.TurnNumber == oldData?.TurnNumber + 1 && newData?.NextPlayerID == 1)))
+                if (newData?.TurnNumber != null && (newData?.TurnNumber == oldData?.TurnNumber && newData?.NextPlayerID == oldData?.NextPlayerID + 1))
                 {
                     DecompressedSave = newSave;
                     TurnTaken[(int)oldData?.NextPlayerID - 1] = true;
@@ -103,16 +87,47 @@ namespace Civ3Tools
             }
         }
 
-        public void PassTurn()
+        public byte[] GetDummyTurn()
         {
+            // Lock game while this process is occurring. We do not care if there is an outstanding lock.
+            locked = true;
+
+            // Set NextPlayerID to dummy player
+            ChangeNextPlayerID(HumanPlayers.Length + 1);
+
+            return DecompressedSave.ToArray();
+        }
+
+        public void ReceiveDummyTurn(byte[] dummySave)
+        {
+            // Decompress if needed
+            dummySave = EnsureDecompressed(dummySave);
+
+            // Check fingerprint
+            if (TurnOrchestrator.GetGameFingerprint(dummySave) != Fingerprint)
+                throw new ArgumentException("Error: Invalid save uploaded");
+
+            var newData = TurnOrchestrator.GetGameDataFromSav(dummySave);
+            var oldData = TurnOrchestrator.GetGameDataFromSav(DecompressedSave);
+
             lock (_lock)
             {
-                for (int i = 0; i < TurnTaken.Length; i++)
+                // Check turn order makes sense
+                if (newData?.TurnNumber != null && (newData?.TurnNumber == oldData?.TurnNumber + 1 && newData?.NextPlayerID < oldData?.NextPlayerID))
                 {
-                    TurnTaken[i] = false;
+                    // Set save to passed interturn step, set TurnTaken to false for all human players, and advance CurrentTurn
+                    DecompressedSave = dummySave;
+                    for (int i = 0; i < TurnTaken.Length; i++)
+                    {
+                        TurnTaken[i] = false;
+                    }
+                    locked = false;
+                    CurrentTurn++;
                 }
-                ChangeCurrentTurn(CurrentTurn + 1);
-                CurrentTurn++;
+                else
+                {
+                    throw new ArgumentException("Error: Save is correct, but turn order is wrong");
+                }
             }
         }
 

@@ -48,9 +48,9 @@ Throws if the save file cannot be fingerprinted.
 | `Fingerprint` | `string` | SHA-256 game fingerprint. Set once at construction, used to validate all uploaded saves. |
 | `AdminPassword` | `string` | Admin password parsed from the `GAME` section of the initial save. Empty string if none was set. |
 | `HumanPlayers` | `string[]` | Current turn order. |
-| `DecompressedSave` | `byte[]` | The latest accepted save file in decompressed form. Updated each time `ReceiveNewTurn` succeeds. |
-| `TurnTaken` | `bool[]` | Parallel to `HumanPlayers`. `true` for each player who has submitted their turn in the current cycle. |
-| `CurrentTurn` | `int` | 0-based turn counter, incremented by `PassTurn`. |
+| `DecompressedSave` | `byte[]` | The latest accepted save file in decompressed form. Updated each time `ReceiveNewTurn` or `ReceiveDummyTurn` succeeds. |
+| `TurnTaken` | `bool[]` | Parallel to `HumanPlayers`. `true` for each player who has submitted their turn in the current cycle. Reset to all `false` by `ReceiveDummyTurn`. |
+| `CurrentTurn` | `int` | 0-based turn counter, incremented by `ReceiveDummyTurn`. |
 
 #### Methods
 
@@ -58,14 +58,12 @@ Throws if the save file cannot be fingerprinted.
 
 **`byte[] GetConfiguredTurn(string player)`**
 
-Prepares and returns `DecompressedSave` for the given player. Writes the correct `NextPlayerID` and `TurnNumber` into the save bytes before returning.
+Prepares and returns a copy of `DecompressedSave` for the given player. Writes the correct `NextPlayerID` into the save bytes before returning.
 
 - Throws if the organizer is locked (another player has the save checked out).
 - Throws if `player` is not found in `HumanPlayers`.
 - Throws if the player has already taken their turn this cycle.
 - Locks the organizer until `ReceiveNewTurn` or `ForceUnlock` is called.
-
-> The returned byte array is the internal buffer. The caller should not modify it.
 
 ---
 
@@ -75,7 +73,7 @@ Validates and accepts an uploaded save file as the new game state.
 
 Validates that:
 1. The fingerprint of `newSave` matches `Fingerprint`.
-2. The turn order is coherent — either the same turn with `NextPlayerID` incremented by 1, or the next turn with `NextPlayerID` equal to 1.
+2. The turn number is unchanged and `NextPlayerID` is incremented by 1.
 
 On success: updates `DecompressedSave`, marks the submitting player's `TurnTaken` flag, and releases the lock.
 
@@ -84,9 +82,26 @@ On success: updates `DecompressedSave`, marks the submitting player's `TurnTaken
 
 ---
 
-**`void PassTurn()`**
+**`byte[] GetDummyTurn()`**
 
-Resets all `TurnTaken` flags to `false`, writes the new turn number to `DecompressedSave`, and increments `CurrentTurn`. Call this when all players have submitted or when the turn timer expires.
+Prepares and returns a copy of `DecompressedSave` with `NextPlayerID` set to the dummy player slot. Call this once all real players have submitted their turns. Locks the organizer regardless of prior lock state.
+
+The admin should load this save, immediately end turn without making any moves, and upload the result via `ReceiveDummyTurn`. Civ 3 will run inter-turn calculations and advance to the next turn number.
+
+---
+
+**`void ReceiveDummyTurn(byte[] dummySave)`**
+
+Validates and accepts the dummy player's uploaded save as the new game state.
+
+Validates that:
+1. The fingerprint of `dummySave` matches `Fingerprint`.
+2. The turn number has incremented by 1 and `NextPlayerID` is less than the previous value (i.e. Civ 3 wrapped back to player 1).
+
+On success: updates `DecompressedSave`, resets all `TurnTaken` flags to `false`, increments `CurrentTurn`, and releases the lock.
+
+- Throws if the fingerprint does not match.
+- Throws if the turn order is invalid.
 
 ---
 
@@ -121,6 +136,7 @@ Parses Civilization III `.biq` and `.sav` binary file formats into strongly-type
 
 - **Author:** [myjimnelson](https://github.com/myjimnelson)
 - **Source:** C# port of the original [Go library in c3sat](https://github.com/myjimnelson/c3sat/tree/master/queryciv3)
+- **License:** MIT — Copyright © OpenCiv3 contributors
 
 ### Blast
 Decompression library for the PKWare BLAST compression algorithm, used to decompress Civ3 game files before parsing.
