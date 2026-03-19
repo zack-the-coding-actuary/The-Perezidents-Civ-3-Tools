@@ -5,6 +5,13 @@ using System.Security.Cryptography;
 
 namespace Civ3Tools
 {
+    // TODO: Rework this class around the dummy player model. Key changes needed:
+    //   - humanPlayers should represent only the real players (slots 1..N-1); the dummy occupies slot N.
+    //   - GetConfiguredTurn should not be callable for the dummy slot by real players.
+    //   - PassTurn / ReceiveNewTurn flow should reflect that the round ends when the admin submits the dummy turn,
+    //     not when all real players have gone (the dummy submission is what triggers Civ 3's inter-turn calcs).
+    //   - Validation in ReceiveNewTurn needs to account for out-of-order NextPlayerID values produced by async play.
+    //   - GetConfiguredTurn returns a reference to DecompressedSave — should return a copy to avoid caller mutation.
     public class PitBossOrganizer : IDisposable
     {
         public string Fingerprint { get; private set; }
@@ -77,6 +84,10 @@ namespace Civ3Tools
                 // Ensure turn order makes sense
                 // Either the turn is the same and the next player is selected, or its the next turn and the first player is selected
                 var oldData = TurnOrchestrator.GetGameDataFromSav(DecompressedSave);
+                // TODO: This validation assumes sequential NextPlayerID progression, but async play means the server
+                //   writes an arbitrary NextPlayerID before handing out the save. The second condition (TurnNumber+1,
+                //   NextPlayerID==1) only fires for the dummy player's submission and is still correct, but the first
+                //   condition (NextPlayerID+1) will not hold for out-of-order turns. Redesign this validation.
                 if (newData?.TurnNumber != null &&
                    ((newData?.TurnNumber == oldData?.TurnNumber && newData?.NextPlayerID == oldData?.NextPlayerID + 1) ||
                    (newData?.TurnNumber == oldData?.TurnNumber + 1 && newData?.NextPlayerID == 1)))

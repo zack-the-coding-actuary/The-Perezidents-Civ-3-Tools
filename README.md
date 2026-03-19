@@ -26,6 +26,8 @@ Current features:
 
 Manages turn order and save file state for an asynchronous Play-By-Email game. Intended to be consumed by a bot or server-side API. Thread-safe — concurrent calls to any public method are safe.
 
+> **Game setup requirement:** The last human player slot in the Civ 3 game must be a **dummy player** controlled by the server admin — not a real participant. This is required because Civ 3 only runs inter-turn calculations (AI turns, production, healing, diplomacy, etc.) after the last human slot ends its turn. Since `PitBossOrganizer` allows real players to take turns in any order, it cannot guarantee which real player goes last. The dummy player goes last every round by design: once all real players have submitted, the admin loads the save as the dummy civ, immediately ends turn without making any moves, and uploads. Civ 3 then fires inter-turn processing and advances to the next turn.
+
 > **Constructor requirement:** `firstSavFile` must be a save from turn 0 after the first player has already taken their turn. This is the standard handoff format for a new PBE game.
 
 #### Constructor
