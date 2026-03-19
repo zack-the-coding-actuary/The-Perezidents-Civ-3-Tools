@@ -9,6 +9,7 @@ namespace Civ3Tools
         public string Fingerprint { get; private set; }
         public string[] HumanPlayers { get; private set; }
         public bool[] DefaultAI { get; private set; } // Whether the AI should take this player's turn if they miss the window
+        public bool LastPlayerHuman { get; private set; } // Whether the last player in HumanPlayers is the actual last player, instead of a dummy slot
         public int? CurrentTurn { get => DecompressedSave is null ? null : StructBuilders.GetGameData(DecompressedSave)?.TurnNumber; }
         public int? CurrentPlayer { get; private set; }
         public byte[] DecompressedSave { get; private set; }
@@ -23,11 +24,17 @@ namespace Civ3Tools
             DecompressedSave = EnsureDecompressed(firstSavFile);
             HumanPlayers = humanPlayers;
             DefaultAI = new bool[HumanPlayers.Length];
+            LastPlayerHuman = false;
             CurrentPlayer = null;
 
             // Instantiate TurnTaken to all false except first player, who we assume took their turn already
             TurnTaken = new bool[HumanPlayers.Length];
-            TurnTaken[0] = true;
+
+            int nextPlayerID = TurnOrchestrator.GetNextPlayerID(DecompressedSave) ?? 1;
+            for (int i = 0; i < nextPlayerID - 1; i++)
+            {
+                TurnTaken[i] = true;
+            }
 
             // If this function returns null, the error will fire and stop the constructor
             Fingerprint = TurnOrchestrator.GetGameFingerprint(DecompressedSave);
@@ -44,6 +51,10 @@ namespace Civ3Tools
             {
                 // If locked, don't give the save.
                 if (locked) throw new ArgumentException("Error: Save state is currently locked by another player");
+
+                // If last actual player is human and not a dummy, last player can't go until everyone else has played
+                if (LastPlayerHuman && player == HumanPlayers[^1])
+                    throw new ArgumentException("Error: Last human player cannot go until turn timer expires for everyone else.");
 
                 // C# arrays are zero-indexed, but 0 correlates to barbarians, so we need to add 1
                 int playerIdx = Array.IndexOf(HumanPlayers, player) + 1;
@@ -92,14 +103,30 @@ namespace Civ3Tools
 
         public bool ToggleDefaultAI(int playerSlot)
         {
-            if (0 <= playerSlot && playerSlot < HumanPlayers.Length)
+            if (0 <= playerSlot && playerSlot < HumanPlayers.Length - Convert.ToInt32(LastPlayerHuman))
             {
                 DefaultAI[playerSlot] = !DefaultAI[playerSlot];
                 return DefaultAI[playerSlot];
             }
+            else if (playerSlot == HumanPlayers.Length - 1 && LastPlayerHuman) {
+                throw new InvalidOperationException("Last player is human and must take their turn without AI");
+            }
             else
             {
                 throw new IndexOutOfRangeException("Invalid player slot given.");
+            }
+        }
+
+        public bool ToggleLastPlayerHuman()
+        {
+            if (!LastPlayerHuman && DefaultAI[^1])
+            {
+                throw new InvalidOperationException("Cannot set last player to human if they allow AI to skip their turn");
+            }
+            else
+            {
+                LastPlayerHuman = !LastPlayerHuman;
+                return LastPlayerHuman;
             }
         }
 
@@ -119,8 +146,8 @@ namespace Civ3Tools
                     }
                 }
 
-                // Set NextPlayerID to dummy player
-                ChangeNextPlayerID(HumanPlayers.Length + 1);
+                // Set NextPlayerID to dummy player or last human if applicable
+                ChangeNextPlayerID(HumanPlayers.Length + 1 - Convert.ToInt32(LastPlayerHuman));
                 CurrentPlayer = HumanPlayers.Length; // Set to after the end of current HumanPlayers array since this is the dummy
                 return DecompressedSave.ToArray();
             }
@@ -248,11 +275,31 @@ namespace Civ3Tools
             throw new ArgumentNullException("Error, could not generate fingerprint for this save file.");
         }
 
+        public static int? GetNextPlayerID(byte[] saveBytes) =>
+            ReadIntFromGameSection(saveBytes, NEXT_PLAYER_ID_OFFSET_IN_GAME);
+
         public static void WriteNextPlayerID(byte[] saveBytes, int id) =>
             WriteIntToGameSection(saveBytes, NEXT_PLAYER_ID_OFFSET_IN_GAME, id);
 
         public static void WriteTurnNumber(byte[] saveBytes, int turn) =>
             WriteIntToGameSection(saveBytes, TURN_NUMBER_OFFSET_IN_GAME, turn);
+
+        private static int? ReadIntFromGameSection(byte[] saveBytes, int offsetInGame)
+        {
+            int biqLength = BitConverter.ToInt32(saveBytes, BIQ_LENGTH_OFFSET);
+            int scanStart = BIQ_SECTION_START + biqLength;
+
+            for (int i = scanStart; i <= saveBytes.Length - 4; i++)
+            {
+                if (BitConverter.ToInt32(saveBytes, i) == GAME_HEADER)
+                {
+                    int readOffset = i + offsetInGame;
+                    if (readOffset + 4 > saveBytes.Length) return null;
+                    return BitConverter.ToInt32(saveBytes, readOffset);
+                }
+            }
+            return null;
+        }
 
         private static void WriteIntToGameSection(byte[] saveBytes, int offsetInGame, int value)
         {

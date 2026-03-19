@@ -27,9 +27,11 @@ Current features:
 
 Manages turn order and save file state for an asynchronous Play-By-Email game. Intended to be consumed by a bot or server-side API. Thread-safe — concurrent calls to any public method are safe.
 
-> **Game setup requirement:** The last human player slot in the Civ 3 game must be a **dummy player** controlled by the server admin — not a real participant. This is required because Civ 3 only runs inter-turn calculations (AI turns, production, healing, diplomacy, etc.) after the last human slot ends its turn. Since `PitBossOrganizer` allows real players to take turns in any order, it cannot guarantee which real player goes last. The dummy player goes last every round by design: once all real players have submitted, the admin loads the save as the dummy civ, immediately ends turn without making any moves, and uploads. Civ 3 then fires inter-turn processing and advances to the next turn.
+> **Game setup — dummy slot (default):** By default, the last human player slot in the Civ 3 game must be a **dummy player** controlled by the server admin — not a real participant. This is required because Civ 3 only runs inter-turn calculations (AI turns, production, healing, diplomacy, etc.) after the last human slot ends its turn. Since `PitBossOrganizer` allows real players to take turns in any order, it cannot guarantee which real player goes last. The dummy player goes last every round by design: once all real players have submitted, the admin calls `GetDummyTurn`, loads the save as the dummy civ, immediately ends turn without making any moves, and uploads via `ReceiveDummyTurn`. Civ 3 then fires inter-turn processing and advances to the next turn.
 
-> **Constructor requirement:** `firstSavFile` must be a save from turn 0 after the first player has already taken their turn. This is the standard handoff format for a new PBE game.
+> **Game setup — last player as human (`LastPlayerHuman = true`):** As an alternative, the last slot can be a real participant. In this mode the last player is blocked from calling `GetConfiguredTurn` and must instead receive their save via `GetDummyTurn` — which also handles AI consent for any players who missed their turn before handing off. The last player takes their turn normally and uploads via `ReceiveDummyTurn`. `DefaultAI` cannot be enabled for the last player in this mode.
+
+> **Constructor:** Accepts any save mid-game — not just turn 0. `TurnTaken` is initialised from `NextPlayerID` in the save file so the organizer correctly reflects which players have already gone in the current cycle.
 
 #### Constructor
 
@@ -37,7 +39,7 @@ Manages turn order and save file state for an asynchronous Play-By-Email game. I
 PitBossOrganizer(byte[] firstSavFile, string[] humanPlayers)
 ```
 
-- `firstSavFile` — The initial `.sav` file (compressed or uncompressed).
+- `firstSavFile` — A `.sav` file for the game, compressed or uncompressed. Can be from any point in the game — `TurnTaken` is initialised from the save's `NextPlayerID`.
 - `humanPlayers` — Ordered array of player identifiers (e.g. Discord usernames) in the desired turn order. Index 0 is the first player to act each turn.
 
 Throws if the save file cannot be fingerprinted.
@@ -52,8 +54,9 @@ Throws if the save file cannot be fingerprinted.
 | `CurrentPlayer` | `int?` | Index into `HumanPlayers` of the player who currently has the save checked out. `HumanPlayers.Length` when the dummy player has it checked out. `null` when no save is checked out. |
 | `DecompressedSave` | `byte[]` | The latest accepted save file in decompressed form. Updated each time `ReceiveNewTurn` or `ReceiveDummyTurn` succeeds. |
 | `CurrentTurn` | `int?` | The current game turn number, read directly from the save file. `null` if the organizer has been disposed or the GAME section cannot be found. |
-| `TurnTaken` | `bool[]` | Parallel to `HumanPlayers`. `true` for each player who has submitted their turn in the current cycle. Reset to all `false` by `ReceiveDummyTurn`. |
-| `DefaultAI` | `bool[]` | Parallel to `HumanPlayers`. `true` for each player who has consented to the Civ 3 AI taking their turn if they miss the submission window. Toggled via `ToggleDefaultAI`. |
+| `TurnTaken` | `bool[]` | Parallel to `HumanPlayers`. `true` for each player who has submitted their turn in the current cycle. Initialised from `NextPlayerID` in the save file at construction. Reset to all `false` by `ReceiveDummyTurn`. |
+| `DefaultAI` | `bool[]` | Parallel to `HumanPlayers`. `true` for each player who has consented to the Civ 3 AI taking their turn if they miss the submission window. Toggled via `ToggleDefaultAI`. Cannot be `true` for the last player when `LastPlayerHuman` is `true`. |
+| `LastPlayerHuman` | `bool` | Whether the last slot in `HumanPlayers` is a real participant rather than a dummy. When `true`, the last player receives their save via `GetDummyTurn` instead of `GetConfiguredTurn`. Toggled via `ToggleLastPlayerHuman`. |
 
 #### Methods
 
@@ -66,6 +69,7 @@ Prepares and returns a copy of `DecompressedSave` for the given player. Writes t
 - Throws if the organizer is locked (another player has the save checked out).
 - Throws if `player` is not found in `HumanPlayers`.
 - Throws if the player has already taken their turn this cycle.
+- Throws if `LastPlayerHuman` is `true` and `player` is the last player — they must receive their save via `GetDummyTurn` instead.
 - Locks the organizer until `ReceiveNewTurn` or `ForceUnlock` is called.
 
 ---
@@ -87,11 +91,14 @@ On success: updates `DecompressedSave`, marks the submitting player's `TurnTaken
 
 **`byte[] GetDummyTurn()`**
 
-Prepares and returns a copy of `DecompressedSave` with `NextPlayerID` set to the dummy player slot. Call this once all real players have submitted their turns. Locks the organizer regardless of prior lock state.
+Prepares and returns a copy of `DecompressedSave` configured for the end-of-round handoff. Locks the organizer regardless of prior lock state.
 
 Before returning, sets any player who missed their turn (`TurnTaken[i] == false`) and has consented to AI control (`DefaultAI[i] == true`) to AI-controlled in the save bytes. Players who did not consent remain human-controlled — they will simply be skipped by Civ 3 in the interturn.
 
-The admin should load this save, immediately end turn without making any moves, and upload the result via `ReceiveDummyTurn`. Civ 3 will run inter-turn calculations and advance to the next turn number.
+Sets `NextPlayerID` to the dummy player slot, or to the last human player's slot if `LastPlayerHuman` is `true`.
+
+- **Dummy slot mode:** The admin loads the save, immediately ends turn without making any moves, and uploads via `ReceiveDummyTurn`. Civ 3 runs inter-turn calculations and advances to the next turn.
+- **`LastPlayerHuman` mode:** The last player loads the save, takes their turn normally, and uploads via `ReceiveDummyTurn`. Civ 3 runs inter-turn calculations after their turn ends.
 
 ---
 
@@ -123,6 +130,13 @@ Toggles the `DefaultAI` consent flag for the player at `playerSlot` (zero-indexe
 When `DefaultAI[i]` is `true`, the player at index `i` has consented to have the Civ 3 AI play their turn if they miss the submission window. `GetDummyTurn` reads this flag and sets those players to AI-controlled before handing off to the admin.
 
 - Throws if `playerSlot` is out of range.
+- Throws if `playerSlot` is the last player and `LastPlayerHuman` is `true` — the last human player cannot consent to AI control.
+
+---
+
+**`bool ToggleLastPlayerHuman()`**
+
+Toggles `LastPlayerHuman` and returns the new value. When enabling (`false → true`), throws if `DefaultAI[^1]` is `true` — the last player cannot have AI consent active while also being designated as a required human turn taker.
 
 ---
 
